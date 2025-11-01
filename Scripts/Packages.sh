@@ -81,6 +81,31 @@ else
 fi
 # -------------------------------------------------------------------------------
 
+# after stripping config lines and modifying Makefile
+echo ">>> Further removal: remove package folders of unwanted modules..."
+
+# 列出你想彻底移除的模块对应包名与可能路径
+UNWANTED_PKGS=(
+  "haproxy"
+  "hysteria"
+  "naiveproxy"
+  "shadowsocks-libev"
+  "shadowsocks-rust"
+  "shadowsocksr-libev"
+  "simple-obfs"
+  "sing-box"
+  "tuic-client"
+  "v2ray-plugin"
+)
+
+for PKG in "${UNWANTED_PKGS[@]}"; do
+  echo "Removing package: $PKG"
+  find ../feeds -type d -iname "*$PKG*" -exec rm -rf {} + 2>/dev/null || true
+  find ./ -type d -iname "*$PKG*" -exec rm -rf {} + 2>/dev/null || true
+done
+
+echo "Removal of unwanted package folders done."
+
 UPDATE_PACKAGE "luci-app-tailscale" "asvow/luci-app-tailscale" "main"
 
 UPDATE_PACKAGE "ddns-go" "sirpdboy/luci-app-ddns-go" "main"
