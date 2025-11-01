@@ -82,12 +82,6 @@ cp -v "$MAKEFILE_PATH" "$MAKEFILE_PATH.bak.removeModules" || true
 # Remove unwanted config lines
 sed -i -E '/^\s*config PACKAGE_\$\(PKG_NAME\)_INCLUDE_(Haproxy|Hysteria|NaiveProxy|Shadowsocks_Libev_Client|Shadowsocks_Libev_Server|Shadowsocks_Rust_Client|Shadowsocks_Rust_Server|ShadowsocksR_Libev_Client|ShadowsocksR_Libev_Server|Simple_Obfs|SingBox|tuic_client|V2ray_Plugin)/d' "$MAKEFILE_PATH"
 
-# Force DEPENDS to only xray-core (adjust if you keep chinadns-ng too)
-sed -i -E 's|^DEPENDS:=.*$|DEPENDS:=+xray-core|' "$MAKEFILE_PATH"
-
-echo "Post-patch DEPENDS line:"
-grep -n "^DEPENDS:=" "$MAKEFILE_PATH"
-
 echo "Scanning for unwanted module keywords in Makefile (should be none):"
 grep -niE "Haproxy|Hysteria|NaiveProxy|Shadowsocks|Simple_Obfs|SingBox|tuic|V2ray_Plugin" "$MAKEFILE_PATH" && echo "WARNING: some unwanted entries still exist!"
 
