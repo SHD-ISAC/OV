@@ -56,44 +56,30 @@ UPDATE_PACKAGE "openclash" "vernesong/OpenClash" "dev" "pkg"
 UPDATE_PACKAGE "passwall" "xiaorouji/openwrt-passwall" "main" "pkg"
 UPDATE_PACKAGE "passwall2" "xiaorouji/openwrt-passwall2" "main" "pkg"
 
-# --- Patch Passwall2: keep only xray-core (immediately after UPDATE_PACKAGE passwall2) ---
-echo "Patching passwall Makefile(s) to DEPENDS:=+xray-core ..."
+# --- Strip unwanted config options from luci-app-passwall2 Makefile ---
+echo "Stripping unwanted INCLUDE_… config lines from luci-app-passwall2 Makefile …"
 
-# Candidate paths (Scripts/ runs from ./wrt/package/)
-CANDIDATES=(
-  "./luci-app-passwall2/Makefile"
-  "./passwall2/Makefile"
-  "../feeds/luci/feeds/passwall2/luci-app-passwall2/Makefile"
-  "../feeds/passwall2/luci-app-passwall2/Makefile"
-  "./$REPO_NAME/luci-app-passwall2/Makefile"
-)
-
-FOUND=""
-for f in "${CANDIDATES[@]}"; do
-  if [ -f "$f" ]; then
-    FOUND="$f"
-    break
+FILE_PATH="./luci-app-passwall2/Makefile"
+# 如果脚本在 ./wrt/package/ 或 ./wrt/package/feeds/passwall2 路径下，则可能需要调整相对路径：
+if [ ! -f "$FILE_PATH" ]; then
+  # 尝试其他可能位置
+  FILE_PATH="../feeds/passwall2/luci-app-passwall2/Makefile"
+  if [ ! -f "$FILE_PATH" ]; then
+    FILE_PATH="../../package/feeds/passwall2/luci-app-passwall2/Makefile"
   fi
-done
-
-# fallback to search if none of the candidates matched
-if [ -z "$FOUND" ]; then
-  FOUND=$(find . -maxdepth 8 -type f -iname Makefile -path "*passwall*" -print -quit 2>/dev/null || true)
 fi
 
-if [ -n "$FOUND" ]; then
-  echo "Found Makefile: $FOUND"
-  cp -v "$FOUND" "$FOUND.bak.passwall-deps" || true
-  if grep -q "^DEPENDS:=" "$FOUND"; then
-    sed -i -E "s|^DEPENDS:=.*$|DEPENDS:=+xray-core|" "$FOUND"
-  else
-    echo "" >> "$FOUND"
-    echo "DEPENDS:=+xray-core" >> "$FOUND"
-  fi
-  echo "Patched. New DEPENDS:"
-  grep -n "^DEPENDS:=" "$FOUND" || true
+if [ -f "$FILE_PATH" ]; then
+  echo "Found Makefile: $FILE_PATH"
+  cp -v "$FILE_PATH" "$FILE_PATH.bak.strip-config" || true
+
+  # 为保证删除多行，使用 sed 删除匹配的 config 行
+  sed -i -E '/^\\s*config PACKAGE_\\$\\(PKG_NAME\\)\\_INCLUDE\\_(Haproxy|Hysteria|NaiveProxy|Shadowsocks\\_Libev\\_Client|Shadowsocks\\_Libev\\_Server|Shadowsocks\\_Rust\\_Client|Shadowsocks\\_Rust\\_Server|ShadowsocksR\\_Libev\\_Client|ShadowsocksR\\_Libev\\_Server|Simple_Obfs|SingBox|tuic_client|V2ray_Plugin)\\b/ d' "$FILE_PATH"
+
+  echo "Stripped unwanted config lines. Showing snippet:"
+  grep -n -E '^config PACKAGE_\\$\\(PKG_NAME\\)\\_INCLUDE' "$FILE_PATH" || echo "None of the unwanted config lines remain."
 else
-  echo "No passwall Makefile found to patch in Packages.sh (searched candidates)."
+  echo "ERROR: Makefile not found to strip config lines: $FILE_PATH"
 fi
 # -------------------------------------------------------------------------------
 
