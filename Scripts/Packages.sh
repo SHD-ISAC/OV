@@ -56,9 +56,10 @@ UPDATE_PACKAGE "openclash" "vernesong/OpenClash" "dev" "pkg"
 UPDATE_PACKAGE "passwall" "xiaorouji/openwrt-passwall" "main" "pkg"
 UPDATE_PACKAGE "passwall2" "xiaorouji/openwrt-passwall2" "main" "pkg"
 
-# --- Patch Passwall2 DEPENDS (immediately after UPDATE_PACKAGE passwall2) ---
-echo "Patching Passwall2 DEPENDS in Packages.sh..."
-FOUND=""
+# --- Patch Passwall2: keep only chinadns-ng and xray-core (run immediately after UPDATE_PACKAGE passwall2) ---
+echo "Patching passwall Makefile(s) to DEPENDS:=+chinadns-ng +xray-core ..."
+
+# candidate paths relative to current script location (Scripts/ runs from ./wrt/package/)
 CANDIDATES=(
   "./luci-app-passwall2/Makefile"
   "./passwall2/Makefile"
@@ -66,26 +67,33 @@ CANDIDATES=(
   "../feeds/passwall2/luci-app-passwall2/Makefile"
   "./$REPO_NAME/luci-app-passwall2/Makefile"
 )
+
+FOUND=""
 for f in "${CANDIDATES[@]}"; do
-  [ -f "$f" ] && FOUND="$f" && break
+  if [ -f "$f" ]; then
+    FOUND="$f"
+    break
+  fi
 done
-# fallback search
+
+# fallback search if candidate list didn't find anything
 if [ -z "$FOUND" ]; then
   FOUND=$(find . -maxdepth 6 -type f -iname Makefile -path "*passwall*" -print -quit 2>/dev/null || true)
 fi
 
 if [ -n "$FOUND" ]; then
-  echo "Found Makefile: $FOUND"
-  sed -i -E "/^DEPENDS:=/ {
-    s/\+(v2ray-core|v2ray-plugin|naiveproxy|simple-obfs|shadowsocksr-libev|sing-box|brook|obfs4proxy|chinadns-ng)//g
-    s/[[:space:]]+/ /g
-    s/DEPENDS:=[[:space:]]*/DEPENDS:=/
-    s/\+\s*$//
-  }" "$FOUND" || echo "sed failed on $FOUND"
-  echo "Patched DEPENDS:"
+  echo "Found Makefile to patch: $FOUND"
+  cp -v "$FOUND" "$FOUND.bak.passwall-deps" || true
+  if grep -q "^DEPENDS:=" "$FOUND"; then
+    sed -i -E "s|^DEPENDS:=.*$|DEPENDS:=+chinadns-ng +xray-core|" "$FOUND"
+  else
+    echo "" >> "$FOUND"
+    echo "DEPENDS:=+chinadns-ng +xray-core" >> "$FOUND"
+  fi
+  echo "Patched. New DEPENDS:"
   grep -n "^DEPENDS:=" "$FOUND" || true
 else
-  echo "No passwall Makefile found to patch in Packages.sh."
+  echo "No passwall Makefile found to patch in Packages.sh (searched candidates)."
 fi
 # -------------------------------------------------------------------------------
 
