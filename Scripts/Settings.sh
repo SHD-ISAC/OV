@@ -78,5 +78,3 @@ if [[ "${WRT_TARGET^^}" == *"QUALCOMMAX"* ]]; then
 		echo "Appended nand-page-size, nand-oob-size and nand-erase-size settings to $DTS_FILE"
 	fi
 fi
-
-fi
