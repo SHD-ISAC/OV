@@ -56,10 +56,10 @@ UPDATE_PACKAGE "openclash" "vernesong/OpenClash" "dev" "pkg"
 UPDATE_PACKAGE "passwall" "xiaorouji/openwrt-passwall" "main" "pkg"
 UPDATE_PACKAGE "passwall2" "xiaorouji/openwrt-passwall2" "main" "pkg"
 
-# --- Patch Passwall2: keep only chinadns-ng and xray-core (run immediately after UPDATE_PACKAGE passwall2) ---
-echo "Patching passwall Makefile(s) to DEPENDS:=+chinadns-ng +xray-core ..."
+# --- Patch Passwall2: keep only xray-core (immediately after UPDATE_PACKAGE passwall2) ---
+echo "Patching passwall Makefile(s) to DEPENDS:=+xray-core ..."
 
-# candidate paths relative to current script location (Scripts/ runs from ./wrt/package/)
+# Candidate paths (Scripts/ runs from ./wrt/package/)
 CANDIDATES=(
   "./luci-app-passwall2/Makefile"
   "./passwall2/Makefile"
@@ -76,19 +76,19 @@ for f in "${CANDIDATES[@]}"; do
   fi
 done
 
-# fallback search if candidate list didn't find anything
+# fallback to search if none of the candidates matched
 if [ -z "$FOUND" ]; then
-  FOUND=$(find . -maxdepth 6 -type f -iname Makefile -path "*passwall*" -print -quit 2>/dev/null || true)
+  FOUND=$(find . -maxdepth 8 -type f -iname Makefile -path "*passwall*" -print -quit 2>/dev/null || true)
 fi
 
 if [ -n "$FOUND" ]; then
-  echo "Found Makefile to patch: $FOUND"
+  echo "Found Makefile: $FOUND"
   cp -v "$FOUND" "$FOUND.bak.passwall-deps" || true
   if grep -q "^DEPENDS:=" "$FOUND"; then
-    sed -i -E "s|^DEPENDS:=.*$|DEPENDS:=+chinadns-ng +xray-core|" "$FOUND"
+    sed -i -E "s|^DEPENDS:=.*$|DEPENDS:=+xray-core|" "$FOUND"
   else
     echo "" >> "$FOUND"
-    echo "DEPENDS:=+chinadns-ng +xray-core" >> "$FOUND"
+    echo "DEPENDS:=+xray-core" >> "$FOUND"
   fi
   echo "Patched. New DEPENDS:"
   grep -n "^DEPENDS:=" "$FOUND" || true
