@@ -158,6 +158,11 @@ jobs:
           $GITHUB_WORKSPACE/Scripts/Packages.sh
           $GITHUB_WORKSPACE/Scripts/Handles.sh
 
+      - name: Debug list passwall2 Makefiles
+        run: |
+          echo ">>> Searching for any Makefile under wrt with ‘passwall’ name..."
+          find ./wrt -type f -iname Makefile | grep -i passwall || true
+
       - name: Intercept unwanted modules in Passwall2
         run: |
           echo ">>> Checking luci-app-passwall2 for unwanted modules..."
