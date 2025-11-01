@@ -56,32 +56,42 @@ UPDATE_PACKAGE "openclash" "vernesong/OpenClash" "dev" "pkg"
 UPDATE_PACKAGE "passwall" "xiaorouji/openwrt-passwall" "main" "pkg"
 UPDATE_PACKAGE "passwall2" "xiaorouji/openwrt-passwall2" "main" "pkg"
 
-# --- Strip unwanted config options from luci-app-passwall2 Makefile ---
-echo "Stripping unwanted INCLUDE_… config lines from luci-app-passwall2 Makefile …"
+# --- Force remove unwanted modules from luci-app-passwall2 and confirm removal ---
+echo ">>> Forcing removal of unwanted modules in luci-app-passwall2"
 
-FILE_PATH="./luci-app-passwall2/Makefile"
-# 如果脚本在 ./wrt/package/ 或 ./wrt/package/feeds/passwall2 路径下，则可能需要调整相对路径：
-if [ ! -f "$FILE_PATH" ]; then
-  # 尝试其他可能位置
-  FILE_PATH="../feeds/passwall2/luci-app-passwall2/Makefile"
-  if [ ! -f "$FILE_PATH" ]; then
-    FILE_PATH="../../package/feeds/passwall2/luci-app-passwall2/Makefile"
-  fi
+MAKEFILE_PATH=""
+CANDIDATES=(
+  "./luci-app-passwall2/Makefile"
+  "./passwall2/Makefile"
+  "../feeds/passwall2/luci-app-passwall2/Makefile"
+  "./package/feeds/passwall2/luci-app-passwall2/Makefile"
+  "./wrt/package/feeds/passwall2/luci-app-passwall2/Makefile"
+)
+for f in "${CANDIDATES[@]}"; do
+  [ -f "$f" ] && { MAKEFILE_PATH="$f"; break; }
+done
+
+if [ -z "$MAKEFILE_PATH" ]; then
+  echo "ERROR: luci-app-passwall2 Makefile not found!"
+  exit 1
 fi
 
-if [ -f "$FILE_PATH" ]; then
-  echo "Found Makefile: $FILE_PATH"
-  cp -v "$FILE_PATH" "$FILE_PATH.bak.strip-config" || true
+echo "Makefile found: $MAKEFILE_PATH"
+cp -v "$MAKEFILE_PATH" "$MAKEFILE_PATH.bak.removeModules" || true
 
-  # 为保证删除多行，使用 sed 删除匹配的 config 行
-  sed -i -E '/^\\s*config PACKAGE_\\$\\(PKG_NAME\\)\\_INCLUDE\\_(Haproxy|Hysteria|NaiveProxy|Shadowsocks\\_Libev\\_Client|Shadowsocks\\_Libev\\_Server|Shadowsocks\\_Rust\\_Client|Shadowsocks\\_Rust\\_Server|ShadowsocksR\\_Libev\\_Client|ShadowsocksR\\_Libev\\_Server|Simple_Obfs|SingBox|tuic_client|V2ray_Plugin)\\b/ d' "$FILE_PATH"
+# Remove unwanted config lines
+sed -i -E '/^\s*config PACKAGE_\$\(PKG_NAME\)_INCLUDE_(Haproxy|Hysteria|NaiveProxy|Shadowsocks_Libev_Client|Shadowsocks_Libev_Server|Shadowsocks_Rust_Client|Shadowsocks_Rust_Server|ShadowsocksR_Libev_Client|ShadowsocksR_Libev_Server|Simple_Obfs|SingBox|tuic_client|V2ray_Plugin)/d' "$MAKEFILE_PATH"
 
-  echo "Stripped unwanted config lines. Showing snippet:"
-  grep -n -E '^config PACKAGE_\\$\\(PKG_NAME\\)\\_INCLUDE' "$FILE_PATH" || echo "None of the unwanted config lines remain."
-else
-  echo "ERROR: Makefile not found to strip config lines: $FILE_PATH"
-fi
-# -------------------------------------------------------------------------------
+# Force DEPENDS to only xray-core (adjust if you keep chinadns-ng too)
+sed -i -E 's|^DEPENDS:=.*$|DEPENDS:=+xray-core|' "$MAKEFILE_PATH"
+
+echo "Post-patch DEPENDS line:"
+grep -n "^DEPENDS:=" "$MAKEFILE_PATH"
+
+echo "Scanning for unwanted module keywords in Makefile (should be none):"
+grep -niE "Haproxy|Hysteria|NaiveProxy|Shadowsocks|Simple_Obfs|SingBox|tuic|V2ray_Plugin" "$MAKEFILE_PATH" && echo "WARNING: some unwanted entries still exist!"
+
+echo ">>> Removal script done."
 
 UPDATE_PACKAGE "luci-app-tailscale" "asvow/luci-app-tailscale" "main"
 
