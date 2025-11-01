@@ -43,7 +43,7 @@ if [ -n "$WRT_PACKAGE" ]; then
 fi
 
 #高通平台调整
-DTS_PATH="./target/linux/qualcommax/files/arch/arm64/boot/dts/qcom/"
+DTS_PATH="./target/linux/qualcommax/files/arch/arm64/boot/dts/qcom"
 if [[ "${WRT_TARGET^^}" == *"QUALCOMMAX"* ]]; then
 	#取消nss相关feed
 	echo "CONFIG_FEED_nss_packages=n" >> ./.config
@@ -63,4 +63,20 @@ if [[ "${WRT_TARGET^^}" == *"QUALCOMMAX"* ]]; then
 		find $DTS_PATH -type f ! -iname '*nowifi*' -exec sed -i 's/ipq\(6018\|8074\).dtsi/ipq\1-nowifi.dtsi/g' {} +
 		echo "qualcommax set up nowifi successfully!"
 	fi
+
+	# 修改 DTS 文件中 nand-ecc-strength 从 <4> 到 <8>（假设已经完成）
+	DTS_FILE="$DTS_PATH/ipq8071-ap8220.dts"
+	if [ -f "$DTS_FILE" ]; then
+		sed -i "s/nand-ecc-strength = <4>/nand-ecc-strength = <8>/g" "$DTS_FILE"
+		echo "Updated nand-ecc-strength from <4> to <8> in $DTS_FILE"
+
+	# 在 nand-bus-width = <8>; 下追加三行
+		sed -i '/nand-bus-width = <8>;/a\
+			nand-page-size = <4096>;\
+			nand-oob-size  = <160>;\
+			nand-erase-size = <262144>;' "$DTS_FILE"
+		echo "Appended nand-page-size, nand-oob-size and nand-erase-size settings to $DTS_FILE"
+	fi
+fi
+
 fi
