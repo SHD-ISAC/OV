@@ -56,6 +56,39 @@ UPDATE_PACKAGE "openclash" "vernesong/OpenClash" "dev" "pkg"
 UPDATE_PACKAGE "passwall" "xiaorouji/openwrt-passwall" "main" "pkg"
 UPDATE_PACKAGE "passwall2" "xiaorouji/openwrt-passwall2" "main" "pkg"
 
+# --- Patch Passwall2 DEPENDS (immediately after UPDATE_PACKAGE passwall2) ---
+echo "Patching Passwall2 DEPENDS in Packages.sh..."
+FOUND=""
+CANDIDATES=(
+  "./luci-app-passwall2/Makefile"
+  "./passwall2/Makefile"
+  "../feeds/luci/feeds/passwall2/luci-app-passwall2/Makefile"
+  "../feeds/passwall2/luci-app-passwall2/Makefile"
+  "./$REPO_NAME/luci-app-passwall2/Makefile"
+)
+for f in "${CANDIDATES[@]}"; do
+  [ -f "$f" ] && FOUND="$f" && break
+done
+# fallback search
+if [ -z "$FOUND" ]; then
+  FOUND=$(find . -maxdepth 6 -type f -iname Makefile -path "*passwall*" -print -quit 2>/dev/null || true)
+fi
+
+if [ -n "$FOUND" ]; then
+  echo "Found Makefile: $FOUND"
+  sed -i -E "/^DEPENDS:=/ {
+    s/\+(v2ray-core|v2ray-plugin|naiveproxy|simple-obfs|shadowsocksr-libev|sing-box|brook|obfs4proxy|chinadns-ng)//g
+    s/[[:space:]]+/ /g
+    s/DEPENDS:=[[:space:]]*/DEPENDS:=/
+    s/\+\s*$//
+  }" "$FOUND" || echo "sed failed on $FOUND"
+  echo "Patched DEPENDS:"
+  grep -n "^DEPENDS:=" "$FOUND" || true
+else
+  echo "No passwall Makefile found to patch in Packages.sh."
+fi
+# -------------------------------------------------------------------------------
+
 UPDATE_PACKAGE "luci-app-tailscale" "asvow/luci-app-tailscale" "main"
 
 UPDATE_PACKAGE "ddns-go" "sirpdboy/luci-app-ddns-go" "main"
