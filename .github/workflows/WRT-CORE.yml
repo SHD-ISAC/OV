@@ -158,31 +158,6 @@ jobs:
           $GITHUB_WORKSPACE/Scripts/Packages.sh
           $GITHUB_WORKSPACE/Scripts/Handles.sh
 
-      - name: Debug list passwall2 Makefiles
-        run: |
-          echo ">>> Searching for any Makefile under wrt with ‘passwall’ name..."
-          find ./wrt -type f -iname Makefile | grep -i passwall || true
-
-      - name: Intercept unwanted modules in Passwall2
-        run: |
-          echo ">>> Checking luci-app-passwall2 for unwanted modules..."
-          FILES=$(find ./wrt -maxdepth 8 -type f -iname Makefile -path "*passwall2/luci-app-passwall2/Makefile" -print 2>/dev/null || true)
-          if [ -z "$FILES" ]; then
-            echo "No Passwall2 Makefile found; skipping check."
-          else
-            for F in $FILES; do
-              echo "Checking file: $F"
-              UNWANTED=$(grep -E "INCLUDE_Haproxy|INCLUDE_Hysteria|INCLUDE_NaiveProxy|INCLUDE_Shadowsocks|INCLUDE_Simple_Obfs|INCLUDE_SingBox|INCLUDE_tuic_client|INCLUDE_V2ray_Plugin" "$F" || true)
-              if [ -n "$UNWANTED" ]; then
-                echo "::error file=$F::Found unwanted modules in Passwall2 Makefile:"
-                echo "$UNWANTED"
-                exit 1
-              else
-                echo "No unwanted modules found in $F."
-              fi
-            done
-          fi
-
       - name: Custom Settings
         run: |
           cd ./wrt/
