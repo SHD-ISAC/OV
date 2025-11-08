@@ -59,7 +59,7 @@ find ./ -type d -iname "*${PKG_NAME}*" -exec rm -rf {} + 2>/dev/null || true
 echo "Removal of ${PKG_NAME} done."
 
 # UPDATE_PACKAGE "aurora" "eamonxg/luci-theme-aurora" "master"
-UPDATE_PACKAGE "aurora" "SHD-ISAC/aurora" "point-d09f825"
+UPDATE_PACKAGE "aurora" "SHD-ISAC/luci-theme-aurora" "point-d09f825"
 UPDATE_PACKAGE "kucat" "sirpdboy/luci-theme-kucat" "js"
 
 UPDATE_PACKAGE "homeproxy" "VIKINGYFY/homeproxy" "main"
