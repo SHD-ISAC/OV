@@ -164,6 +164,12 @@ jobs:
           cd ./wrt/
 
           ./scripts/feeds update -a
+
+          # 物理删除与 PassWall 官方依赖仓库冲突的源码
+          rm -rf feeds/packages/net/xray-core
+          rm -rf feeds/packages/net/v2ray-geosite
+          rm -rf feeds/packages/net/v2ray-geoip
+
           ./scripts/feeds install -a
 
       - name: Custom Packages
@@ -172,6 +178,48 @@ jobs:
 
           $GITHUB_WORKSPACE/Scripts/Packages.sh
           $GITHUB_WORKSPACE/Scripts/Handles.sh
+
+      - name: Deep Patch Passwall2
+        run: |
+          BASE="/mnt/build_wrt"
+          echo "Starting Deep Patch for Passwall2..."
+          
+          # 找到所有 passwall2 的 Makefile 并强制移除依赖
+          # 使用 -L 跟踪软链接，确保修改到真实文件
+          find -L "$BASE" -name "Makefile" -path "*/luci-app-passwall2/*" | while read -r mk; do
+            echo "Patching: $mk"
+            sed -i 's/+v2ray-geoip//g' "$mk"
+            sed -i 's/+v2ray-geosite//g' "$mk"
+            # 检查修改结果
+            grep "v2ray-geo" "$mk" || echo "Dependency removed successfully in $mk"
+          done
+
+      - name: Verify Xray Version
+        run: |
+          cd ./wrt/
+
+          XRAY_MK="$(find package -type f -path '*/xray-core/Makefile' | head -n1)"
+
+          [ -n "$XRAY_MK" ] || {
+            echo "ERROR: xray-core not found"
+            exit 1
+          }
+
+          LOCAL_VER="$(sed -n 's/^PKG_VERSION:=//p' "$XRAY_MK")"
+
+          REMOTE_VER="$(
+            curl -fsSL \
+              https://raw.githubusercontent.com/Openwrt-Passwall/openwrt-passwall-packages/main/xray-core/Makefile |
+            sed -n 's/^PKG_VERSION:=//p'
+          )"
+
+          echo "Local Xray:  $LOCAL_VER"
+          echo "PassWall Xray: $REMOTE_VER"
+
+          if [ "$LOCAL_VER" != "$REMOTE_VER" ]; then
+            echo "ERROR: Xray Core is not the latest PassWall version!"
+            exit 1
+          fi
 
       - name: Custom Settings
         run: |
@@ -184,6 +232,16 @@ jobs:
           fi
 
           $GITHUB_WORKSPACE/Scripts/Settings.sh
+
+          # 强制指定依赖关系
+          cat >> .config <<'EOF'
+          CONFIG_PACKAGE_luci-app-passwall2=y
+          CONFIG_PACKAGE_xray-core=y
+          CONFIG_PACKAGE_xray-geodata=y
+          # 下面两行非常关键，防止 apk 尝试在 rootfs 阶段安装它们
+          # CONFIG_PACKAGE_v2ray-geoip is not set
+          # CONFIG_PACKAGE_v2ray-geosite is not set
+          EOF
 
           make defconfig -j$(nproc) && make clean -j$(nproc)
 
