@@ -64,6 +64,61 @@ UPDATE_PACKAGE "passwall2" "Openwrt-Passwall/openwrt-passwall2" "main" "pkg"
 # 使用 PassWall 官方维护的 Xray Core
 UPDATE_PACKAGE "xray-core" "Openwrt-Passwall/openwrt-passwall-packages" "main" "pkg"
 
+# 使用 Loyalsoldier/v2ray-rules-dat 的最新 GeoIP/GeoSite 数据替换
+# ImmortalWrt v2ray-geodata 包内默认的 v2fly 数据。
+UPDATE_LOYALSOLDIER_GEODATA() {
+	local GEODATA_MK="../feeds/packages/net/v2ray-geodata/Makefile"
+	local RELEASE_API="https://api.github.com/repos/Loyalsoldier/v2ray-rules-dat/releases/latest"
+	local RELEASE_TAG GEOIP_HASH GEOSITE_HASH
+
+	[ -f "$GEODATA_MK" ] || {
+		echo "ERROR: v2ray-geodata Makefile not found: $GEODATA_MK"
+		return 1
+	}
+
+	RELEASE_TAG="$(curl -fsSL --retry 3 "$RELEASE_API" | jq -er '.tag_name')" || {
+		echo "ERROR: failed to obtain the latest Loyalsoldier release tag"
+		return 1
+	}
+
+	# OpenWrt 软件包版本不能包含任意 tag 字符，只保留数字作为数据版本。
+	local DATA_VERSION="${RELEASE_TAG//[^0-9]/}"
+	[ -n "$DATA_VERSION" ] || {
+		echo "ERROR: invalid Loyalsoldier release tag: $RELEASE_TAG"
+		return 1
+	}
+
+	GEOIP_HASH="$(curl -fsSL --retry 3 \
+		"https://github.com/Loyalsoldier/v2ray-rules-dat/releases/download/$RELEASE_TAG/geoip.dat.sha256sum" |
+		awk 'NR == 1 && $1 ~ /^[0-9a-fA-F]{64}$/ { print tolower($1) }')"
+	GEOSITE_HASH="$(curl -fsSL --retry 3 \
+		"https://github.com/Loyalsoldier/v2ray-rules-dat/releases/download/$RELEASE_TAG/geosite.dat.sha256sum" |
+		awk 'NR == 1 && $1 ~ /^[0-9a-fA-F]{64}$/ { print tolower($1) }')"
+
+	[ "${#GEOIP_HASH}" -eq 64 ] && [ "${#GEOSITE_HASH}" -eq 64 ] || {
+		echo "ERROR: failed to obtain valid Loyalsoldier SHA-256 checksums"
+		return 1
+	}
+
+	sed -i -E \
+		-e "s|^GEOIP_VER:=.*|GEOIP_VER:=$DATA_VERSION|" \
+		-e "s|^GEOSITE_VER:=.*|GEOSITE_VER:=$DATA_VERSION|" \
+		-e "s|^GEOIP_FILE:=.*|GEOIP_FILE:=geoip.dat.\$(GEOIP_VER)|" \
+		-e "s|^GEOSITE_FILE:=.*|GEOSITE_FILE:=geosite.dat.\$(GEOSITE_VER)|" \
+		-e "s|^  URL:=https://github.com/v2fly/geoip/releases/download/.*|  URL:=https://github.com/Loyalsoldier/v2ray-rules-dat/releases/download/$RELEASE_TAG/|" \
+		-e "s|^  URL:=https://github.com/v2fly/domain-list-community/releases/download/.*|  URL:=https://github.com/Loyalsoldier/v2ray-rules-dat/releases/download/$RELEASE_TAG/|" \
+		-e '/define Download\/geosite/,/endef/ s|^  URL_FILE:=.*|  URL_FILE:=geosite.dat|' \
+		-e "/define Download\\/geoip/,/endef/ s|^  HASH:=.*|  HASH:=$GEOIP_HASH|" \
+		-e "/define Download\\/geosite/,/endef/ s|^  HASH:=.*|  HASH:=$GEOSITE_HASH|" \
+		"$GEODATA_MK"
+
+	echo "Loyalsoldier geodata selected: $RELEASE_TAG"
+	echo "  geoip.dat:  $GEOIP_HASH"
+	echo "  geosite.dat: $GEOSITE_HASH"
+}
+
+UPDATE_LOYALSOLDIER_GEODATA || exit 1
+
 # --- Strip include-config options in luci-app-passwall2 Makefile (without modifying DEPENDS) ---
 echo "Stripping unwanted INCLUDE_… config lines from luci-app-passwall2 Makefile (keeping DEPENDS unchanged) …"
 
@@ -131,9 +186,6 @@ echo "Removal of unwanted package folders done."
 #UPDATE_PACKAGE "timecontrol" "sirpdboy/luci-app-timecontrol" "main"
 #UPDATE_PACKAGE "viking" "VIKINGYFY/packages" "main" "" "luci-app-timewol luci-app-wolplus"
 #UPDATE_PACKAGE "vnt" "lmq8267/luci-app-vnt" "main"
-
-UPDATE_PACKAGE "airpi3000m" "LianXia233/luci-app-airpi3000m-fancontrol" "main"
-UPDATE_PACKAGE "h5000m" "LianXia233/luci-app-h5000m-netmode" "main"
 
 #更新软件包版本
 UPDATE_VERSION() {
