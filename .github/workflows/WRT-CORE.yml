@@ -237,8 +237,8 @@ jobs:
           cat >> .config <<'EOF'
           CONFIG_PACKAGE_luci-app-passwall2=y
           CONFIG_PACKAGE_xray-core=y
-          CONFIG_PACKAGE_xray-geodata=y
-          # 下面两行非常关键，防止 apk 尝试在 rootfs 阶段安装它们
+          # 由 Scripts/Packages.sh 改为 Loyalsoldier 最新数据；同时满足
+          # PassWall 2 的依赖并安装到 /usr/share/v2ray 与 /usr/share/xray。
           CONFIG_PACKAGE_v2ray-geoip=y
           CONFIG_PACKAGE_v2ray-geosite=y
           EOF
