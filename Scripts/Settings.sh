@@ -56,12 +56,34 @@ fi
 #高通平台调整
 DTS_PATH="./target/linux/qualcommax/dts/"
 if [[ "${WRT_TARGET^^}" == *"QUALCOMMAX"* ]]; then
+
 	#开启sqm-nss插件
 	echo "CONFIG_PACKAGE_luci-app-sqm=y" >> ./.config
 	echo "CONFIG_PACKAGE_sqm-scripts-nss=y" >> ./.config
+	
 	#无WIFI配置调整Q6大小
 	if [[ "${WRT_CONFIG,,}" == *"wifi"* && "${WRT_CONFIG,,}" == *"no"* ]]; then
 		find $DTS_PATH -type f ! -iname '*nowifi*' -exec sed -i 's/ipq\(6018\|8074\).dtsi/ipq\1-nowifi.dtsi/g' {} +
 		echo "qualcommax set up nowifi successfully!"
+	fi
+
+	# AP8220 1G NAND 参数
+	AP8220_PATCH="$GITHUB_WORKSPACE/Patches/100-ap8220-1g-nand.patch"
+
+	if [ -f "$AP8220_PATCH" ]; then
+		echo "Applying AP8220 1G NAND patch..."
+
+		if grep -q $'\r' "$AP8220_PATCH"; then
+			echo "ERROR: AP8220 patch contains CRLF line endings!"
+			exit 1
+		fi
+
+		if ! git apply --check "$AP8220_PATCH"; then
+			echo "ERROR: AP8220 1G NAND patch cannot be applied!"
+			exit 1
+		fi
+
+		git apply "$AP8220_PATCH"
+		echo "AP8220 1G NAND patch applied successfully!"
 	fi
 fi

@@ -1,0 +1,18 @@
+diff --git a/target/linux/qualcommax/dts/ipq8071-ap8220.dts b/target/linux/qualcommax/dts/ipq8071-ap8220.dts
+--- a/target/linux/qualcommax/dts/ipq8071-ap8220.dts
++++ b/target/linux/qualcommax/dts/ipq8071-ap8220.dts
+@@ -135,10 +135,13 @@ &qpic_nand {
+ 	nand@0 {
+ 		reg = <0>;
+ 
+-		nand-ecc-strength = <4>;
++		nand-ecc-strength = <8>;
+ 		nand-ecc-step-size = <512>;
+ 		nand-bus-width = <8>;
++		nand-page-size = <4096>;
++		nand-oob-size = <160>;
++		nand-erase-size = <262144>;
+ 
+ 		partitions {
+ 			compatible = "qcom,smem-part";
+ 			qcom,smem-flash-id = <1>;
