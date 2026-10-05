@@ -45,6 +45,10 @@ on:
         default: false
         type: boolean
 
+defaults:
+  run:
+    shell: bash
+
 env:
   GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
   WRT_CONFIG: ${{inputs.WRT_CONFIG}}
@@ -93,6 +97,19 @@ jobs:
       - name: Initialization Values
         id: initialize-values
         run: |
+          [[ "$WRT_CONFIG" =~ ^[A-Za-z0-9_-]+$ ]] && [ -f "./Config/$WRT_CONFIG.txt" ] || {
+            echo "ERROR: unknown build configuration: $WRT_CONFIG"
+            exit 1
+          }
+          WRT_WIFI=none
+          case "$WRT_CONFIG" in
+            *-WIFI-YES) WRT_WIFI=wifi-yes ;;
+            *-WIFI-NO) WRT_WIFI=wifi-no ;;
+          esac
+          WRT_VARIANT=standard
+          if [[ "$WRT_CONFIG" == IPQ807X* ]] && [ -f ./Patches/100-ap8220-1g-nand.patch ]; then
+            WRT_VARIANT=ap8220-1g-nand
+          fi
           WRT_TARGET=$(grep -m 1 -oP '^CONFIG_TARGET_\K[\w]+(?=\=y)' "./Config/$WRT_CONFIG.txt")
           WRT_SUBTARGET=$(grep -m 1 -oP "^CONFIG_TARGET_${WRT_TARGET}_\K[\w]+(?=\=y)" "./Config/$WRT_CONFIG.txt")
           WRT_CACHE_SOURCE=${WRT_SOURCE//\//-}
@@ -108,7 +125,8 @@ jobs:
             echo "WRT_SUBTARGET=$WRT_SUBTARGET"
             echo "WRT_CACHE_TARGET=$WRT_CACHE_TARGET"
             echo "WRT_CACHE_PREFIX=$WRT_CACHE_PREFIX"
-            echo "WRT_WIFI=wifi-yes"
+            echo "WRT_WIFI=$WRT_WIFI"
+            echo "WRT_VARIANT=$WRT_VARIANT"
             echo "WRT_KVER=none"
             echo "WRT_LIST=none"
           } >> "$GITHUB_ENV"
@@ -117,7 +135,7 @@ jobs:
       - name: Clone Code
         id: clone-code
         run: |
-          git clone --depth=1 --single-branch --branch $WRT_BRANCH $WRT_REPO ./wrt/
+          git clone --depth=1 --single-branch --branch "$WRT_BRANCH" "$WRT_REPO" ./wrt/
 
           cd ./wrt/
           WRT_HASH=$(git rev-parse HEAD)
@@ -161,12 +179,14 @@ jobs:
         run: |
           cd ./wrt/
 
+          # 这些源在 GENERAL/TEST 配置中已禁用；避免导入其 Kconfig 循环依赖。
+          FEEDS_CONF=feeds.conf.default
+          [ ! -f feeds.conf ] || FEEDS_CONF=feeds.conf
+          sed -i -E '/^src-[^[:space:]]+[[:space:]]+(video|pon_drivers|pon_userspace)[[:space:]]/d' "$FEEDS_CONF"
           ./scripts/feeds update -a
 
-          # 物理删除与 PassWall 官方依赖仓库冲突的源码
+          # Xray 将由 PassWall 官方依赖仓库提供。
           rm -rf feeds/packages/net/xray-core
-          # rm -rf feeds/packages/net/v2ray-geosite
-          # rm -rf feeds/packages/net/v2ray-geoip
 
           ./scripts/feeds install -a
 
@@ -177,32 +197,25 @@ jobs:
           $GITHUB_WORKSPACE/Scripts/Packages.sh
           $GITHUB_WORKSPACE/Scripts/Handles.sh
 
-      - name: Verify Xray Version
+      - name: Verify Xray Source
         run: |
           cd ./wrt/
-
-          XRAY_MK="$(find package -type f -path '*/xray-core/Makefile' | head -n1)"
-
-          [ -n "$XRAY_MK" ] || {
-            echo "ERROR: xray-core not found"
+          XRAY_MK=package/xray-core/Makefile
+          WRT_XRAY_COMMIT=$(awk -F '\t' '$1 == "xray-core" && $2 == "Openwrt-Passwall/openwrt-passwall-packages" {print $3}' package-sources.tsv)
+          [[ "$WRT_XRAY_COMMIT" =~ ^[0-9a-f]{40}$ ]] && [ -f "$XRAY_MK" ] || {
+            echo "ERROR: Xray source or commit is missing"
             exit 1
           }
-
-          LOCAL_VER="$(sed -n 's/^PKG_VERSION:=//p' "$XRAY_MK")"
-
-          REMOTE_VER="$(
-            curl -fsSL \
-              https://raw.githubusercontent.com/Openwrt-Passwall/openwrt-passwall-packages/main/xray-core/Makefile |
-            sed -n 's/^PKG_VERSION:=//p'
-          )"
-
-          echo "Local Xray:  $LOCAL_VER"
-          echo "PassWall Xray: $REMOTE_VER"
-
-          if [ "$LOCAL_VER" != "$REMOTE_VER" ]; then
-            echo "ERROR: Xray Core is not the latest PassWall version!"
-            exit 1
-          fi
+          # 对比本次克隆的固定提交，避免构建途中 main 更新导致误报。
+          curl -fsSL --retry 3 \
+            "https://raw.githubusercontent.com/Openwrt-Passwall/openwrt-passwall-packages/$WRT_XRAY_COMMIT/xray-core/Makefile" \
+            -o xray-upstream.Makefile
+          cmp "$XRAY_MK" xray-upstream.Makefile
+          WRT_XRAY_VERSION=$(sed -n 's/^PKG_VERSION:=//p' "$XRAY_MK")
+          [ -n "$WRT_XRAY_VERSION" ]
+          echo "Xray: $WRT_XRAY_VERSION ($WRT_XRAY_COMMIT)"
+          echo "WRT_XRAY_COMMIT=$WRT_XRAY_COMMIT" >> "$GITHUB_ENV"
+          echo "WRT_XRAY_VERSION=$WRT_XRAY_VERSION" >> "$GITHUB_ENV"
 
       - name: Custom Settings
         run: |
@@ -216,17 +229,10 @@ jobs:
 
           $GITHUB_WORKSPACE/Scripts/Settings.sh
 
-          # 强制指定依赖关系
-          cat >> .config <<'EOF'
-          CONFIG_PACKAGE_luci-app-passwall2=y
-          CONFIG_PACKAGE_xray-core=y
-          # 由 Scripts/Packages.sh 改为 Loyalsoldier 最新数据；同时满足
-          # PassWall 2 的依赖并安装到 /usr/share/v2ray 与 /usr/share/xray。
-          CONFIG_PACKAGE_v2ray-geoip=y
-          CONFIG_PACKAGE_v2ray-geosite=y
-          EOF
-
-          make defconfig -j$(nproc) && make clean -j$(nproc)
+          python3 "$GITHUB_WORKSPACE/Scripts/Configure-Passwall2.py"
+          make defconfig -j$(nproc)
+          python3 "$GITHUB_WORKSPACE/Scripts/Configure-Passwall2.py" --verify
+          make clean -j$(nproc)
 
       - name: Download Packages
         if: ${{ !inputs.WRT_TEST }}
@@ -266,39 +272,51 @@ jobs:
 
       - name: Package Firmware
         run: |
-          cd ./wrt/ && mkdir ./upload/
-
-          cp -f ./.config ./upload/Config-"$WRT_CONFIG"-"$WRT_INFO"-"$WRT_BRANCH"-"$WRT_DATE".txt
+          cd ./wrt/
+          mkdir -p ./upload/
+          BUILD_LABEL="$WRT_CONFIG-$WRT_INFO-$WRT_BRANCH-$WRT_VARIANT-$WRT_DATE"
+          cp .config "./upload/Config-$BUILD_LABEL.txt"
+          cp package-sources.tsv "./upload/Sources-$BUILD_LABEL.txt"
 
           if [[ "$WRT_TEST" != 'true' ]]; then
-            echo "WRT_KVER=$(find ./bin/targets/ -type f -name "*.manifest" -exec grep -oP '^kernel - \K[\d\.]+' {} \;)" >> $GITHUB_ENV
-            echo "WRT_LIST=$(find ./bin/targets/ -type f -name "*.manifest" -exec grep -oP '^luci-(app|theme)[^ ]*' {} \; | tr '\n' ' ')" >> $GITHUB_ENV
+            mapfile -d '' MANIFESTS < <(find ./bin/targets/ -type f -name '*.manifest' -print0)
+            [ "${#MANIFESTS[@]}" -gt 0 ] || { echo "ERROR: no firmware manifest produced"; exit 1; }
+            for MANIFEST in "${MANIFESTS[@]}"; do
+              for PACKAGE in luci-app-passwall2 xray-core v2ray-geoip v2ray-geosite; do
+                grep -q "^$PACKAGE - " "$MANIFEST" || { echo "ERROR: $PACKAGE missing from $MANIFEST"; exit 1; }
+              done
+            done
+            WRT_KVER=$(sed -n 's/^kernel - //p' "${MANIFESTS[@]}" | sort -u | paste -sd ',' -)
+            WRT_LIST=$(sed -n 's/^\(luci-\(app\|theme\)[^ ]*\) .*/\1/p' "${MANIFESTS[@]}" | sort -u | paste -sd ' ' -)
+            echo "WRT_KVER=$WRT_KVER" >> "$GITHUB_ENV"
+            echo "WRT_LIST=$WRT_LIST" >> "$GITHUB_ENV"
 
             find ./bin/targets/ -iregex ".*\(buildinfo\|json\|sha256sums\|packages\)$" -exec rm -rf {} +
-
-            for FILE in $(find ./bin/targets/ -type f -iname "*$WRT_TARGET*") ; do
-              EXT=$(basename $FILE | cut -d '.' -f 2-)
-              NAME=$(basename $FILE | cut -d '.' -f 1 | grep -io "\($WRT_TARGET\).*")
-              NEW_FILE="$NAME"-"$WRT_INFO"-"$WRT_BRANCH"-"$WRT_WIFI"-"$WRT_DATE"."$EXT"
-              mv -f $FILE ./upload/$NEW_FILE
-            done
-
-            find ./bin/targets/ -type f -exec mv -f {} ./upload/ \;
-
+            while IFS= read -r -d '' FILE; do
+              BASE=$(basename "$FILE")
+              EXT=${BASE#*.}
+              NAME=${BASE%%.*}
+              NAME=${NAME#*"$WRT_TARGET"}
+              NEW_FILE="$WRT_TARGET$NAME-$WRT_INFO-$WRT_BRANCH-$WRT_WIFI-$WRT_VARIANT-$WRT_DATE.$EXT"
+              mv "$FILE" "./upload/$NEW_FILE"
+            done < <(find ./bin/targets/ -type f -iname "*$WRT_TARGET*" -print0)
+            find ./bin/targets/ -type f -exec mv -t ./upload/ {} +
             make clean -j$(nproc)
           fi
+          # 原始校验和在改名后失效，按最终发布文件重新生成。
+          (cd upload && sha256sum -- * > sha256sums)
 
       - name: Release Firmware
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
-          tag_name: ${{env.WRT_CONFIG}}-${{env.WRT_INFO}}-${{env.WRT_BRANCH}}-${{env.WRT_DATE}}
-          files: ./wrt/upload/*.*
+          tag_name: ${{env.WRT_CONFIG}}-${{env.WRT_INFO}}-${{env.WRT_BRANCH}}-${{env.WRT_VARIANT}}-${{env.WRT_DATE}}
+          target_commitish: ${{github.sha}}
+          files: ./wrt/upload/*
+          fail_on_unmatched_files: true
           body: |
-            这是个平台固件包，内含多个设备！
-            请注意选择你需要的设备固件！
-            不要问，刷就完事了！
-
-            全系带开源硬件加速，别问了！
+            按设备型号和 NAND 规格选择固件。
+            standard 为标准配置；ap8220-1g-nand 仅适用于对应 NAND 改装的 AP8220。
+            下载后可使用 sha256sums 校验文件。
 
             源码：${{env.WRT_REPO}}
             分支：${{env.WRT_BRANCH}}
@@ -306,6 +324,10 @@ jobs:
 
             配置：${{env.WRT_CONFIG}}
             平台：${{env.WRT_TARGET}}
+            固件变体：${{env.WRT_VARIANT}}
+            构建配置提交：${{github.sha}}
+            Xray：${{env.WRT_XRAY_VERSION}} (${{env.WRT_XRAY_COMMIT}})
+            Loyalsoldier 数据：${{env.WRT_GEODATA_TAG}}
 
             登录地址：${{env.WRT_IP}}
             登录密码：${{env.WRT_PW}}

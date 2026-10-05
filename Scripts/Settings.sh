@@ -48,11 +48,6 @@ if [ -n "$WRT_PACKAGE" ]; then
 	echo -e "$WRT_PACKAGE" >> ./.config
 fi
 
-#无WIFI配置标志
-if [[ "${WRT_CONFIG,,}" == *"wifi"* && "${WRT_CONFIG,,}" == *"no"* ]]; then
-	echo "WRT_WIFI=wifi-no" >> $GITHUB_ENV
-fi
-
 #高通平台调整
 DTS_PATH="./target/linux/qualcommax/dts/"
 if [[ "${WRT_TARGET^^}" == *"QUALCOMMAX"* ]]; then
@@ -60,7 +55,7 @@ if [[ "${WRT_TARGET^^}" == *"QUALCOMMAX"* ]]; then
 	#开启sqm-nss插件
 	echo "CONFIG_PACKAGE_luci-app-sqm=y" >> ./.config
 	echo "CONFIG_PACKAGE_sqm-scripts-nss=y" >> ./.config
-	
+
 	#无WIFI配置调整Q6大小
 	if [[ "${WRT_CONFIG,,}" == *"wifi"* && "${WRT_CONFIG,,}" == *"no"* ]]; then
 		find $DTS_PATH -type f ! -iname '*nowifi*' -exec sed -i 's/ipq\(6018\|8074\).dtsi/ipq\1-nowifi.dtsi/g' {} +
@@ -70,7 +65,11 @@ if [[ "${WRT_TARGET^^}" == *"QUALCOMMAX"* ]]; then
 	# AP8220 1G NAND 参数
 	AP8220_PATCH="$GITHUB_WORKSPACE/Patches/100-ap8220-1g-nand.patch"
 
-	if [ -f "$AP8220_PATCH" ]; then
+	if grep -qx 'CONFIG_TARGET_DEVICE_qualcommax_ipq807x_DEVICE_aliyun_ap8220=y' .config; then
+		[ -f "$AP8220_PATCH" ] || {
+			echo "ERROR: AP8220 1G NAND patch is missing!"
+			exit 1
+		}
 		echo "Applying AP8220 1G NAND patch..."
 
 		if grep -q $'\r' "$AP8220_PATCH"; then
