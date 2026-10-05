@@ -2,13 +2,17 @@
 # SPDX-License-Identifier: MIT
 # Copyright (C) 2026 VIKINGYFY
 
+set -eo pipefail
+
+printf 'package\trepository\tcommit\n' > ./package-sources.tsv
+
 #安装和更新软件包
 UPDATE_PACKAGE() {
 	local PKG_NAME=$1
 	local PKG_REPO=$2
 	local PKG_BRANCH=$3
-	local PKG_SPECIAL=$4
-	local PKG_LIST=("$PKG_NAME" $5)  # 第5个参数为自定义名称列表
+	local PKG_SPECIAL=${4:-}
+	local PKG_LIST=("$PKG_NAME" ${5:-})  # 第5个参数为自定义名称列表
 	local REPO_NAME=${PKG_REPO#*/}
 	local REPO_PATH="./package/$REPO_NAME"
 
@@ -32,12 +36,18 @@ UPDATE_PACKAGE() {
 	done
 
 	# 克隆 GitHub 仓库
-	git clone --depth=1 --single-branch --branch $PKG_BRANCH "https://github.com/$PKG_REPO.git" $REPO_PATH
+	git clone --depth=1 --single-branch --branch "$PKG_BRANCH" "https://github.com/$PKG_REPO.git" "$REPO_PATH"
+	printf '%s\t%s\t%s\n' "$PKG_NAME" "$PKG_REPO" "$(git -C "$REPO_PATH" rev-parse HEAD)" >> ./package-sources.tsv
 
 	# 处理克隆的仓库
 	if [[ "$PKG_SPECIAL" == "pkg" ]]; then
-		find $REPO_PATH/*/ -maxdepth 3 -type d -iname "*$PKG_NAME*" -prune -exec cp -rf {} ./package \;
-		rm -rf $REPO_PATH
+		local MATCHES
+		MATCHES=$(find "$REPO_PATH" -mindepth 1 -maxdepth 4 -type d -iname "*$PKG_NAME*" -not -path '*/.git/*' -prune)
+		[ -n "$MATCHES" ] || { echo "ERROR: $PKG_NAME not found in $PKG_REPO"; return 1; }
+		while IFS= read -r DIR; do
+			cp -rf "$DIR" ./package/
+		done <<< "$MATCHES"
+		rm -rf "$REPO_PATH"
 	fi
 }
 
@@ -51,9 +61,9 @@ UPDATE_PACKAGE "aurora" "eamonxg/luci-theme-aurora" "master"
 UPDATE_PACKAGE "aurora-config" "eamonxg/luci-app-aurora-config" "master"
 #UPDATE_PACKAGE "kucat" "sirpdboy/luci-theme-kucat" "master"
 #UPDATE_PACKAGE "kucat-config" "sirpdboy/luci-app-kucat-config" "master"
-#UPDATE_PACKAGE "noobwrt" "nooblk-98/luci-theme-noobwrt" "master"
 #UPDATE_PACKAGE "shadcn" "eamonxg/luci-theme-shadcn" "main"
-#UPDATE_PACKAGE "theme-fluent" "LazuliKao/luci-theme-fluent" "main"
+#UPDATE_PACKAGE "fluent" "LazuliKao/luci-theme-fluent" "main"
+#UPDATE_PACKAGE "footstrap" "VizzleTF/luci-theme-footstrap" "main"
 
 #UPDATE_PACKAGE "momo" "nikkinikki-org/OpenWrt-momo" "main"
 #UPDATE_PACKAGE "nikki" "nikkinikki-org/OpenWrt-nikki" "main"
@@ -111,59 +121,24 @@ UPDATE_LOYALSOLDIER_GEODATA() {
 		-e "/define Download\\/geosite/,/endef/ s|^  HASH:=.*|  HASH:=$GEOSITE_HASH|" \
 		"$GEODATA_MK"
 
+	# 上游 Makefile 格式变动时必须报错，不能静默回退到其他数据源。
+	[ "$(grep -Fc "  URL:=https://github.com/Loyalsoldier/v2ray-rules-dat/releases/download/$RELEASE_TAG/" "$GEODATA_MK")" -eq 2 ]
+	grep -Fqx "  HASH:=$GEOIP_HASH" "$GEODATA_MK"
+	grep -Fqx "  HASH:=$GEOSITE_HASH" "$GEODATA_MK"
+	grep -Fqx '  URL_FILE:=geosite.dat' "$GEODATA_MK"
+	if [ -n "${GITHUB_ENV:-}" ]; then
+		echo "WRT_GEODATA_TAG=$RELEASE_TAG" >> "$GITHUB_ENV"
+	fi
+
 	echo "Loyalsoldier geodata selected: $RELEASE_TAG"
 	echo "  geoip.dat:  $GEOIP_HASH"
 	echo "  geosite.dat: $GEOSITE_HASH"
 }
 
-UPDATE_LOYALSOLDIER_GEODATA || exit 1
+UPDATE_LOYALSOLDIER_GEODATA
 
-# --- Strip include-config options in luci-app-passwall2 Makefile (without modifying DEPENDS) ---
-echo "Stripping unwanted INCLUDE_… config lines from luci-app-passwall2 Makefile (keeping DEPENDS unchanged) …"
-
-FILE_PATH="./package/luci-app-passwall2/Makefile"
-# 兼容包位于 package 或 feeds 的情况
-if [ ! -f "$FILE_PATH" ]; then
-  FILE_PATH="$(find ./package ./feeds -maxdepth 5 -type f -path "*/luci-app-passwall2/Makefile" -print -quit 2>/dev/null)"
-fi
-
-if [ -f "$FILE_PATH" ]; then
-  echo "Found Makefile: $FILE_PATH"
-  cp -v "$FILE_PATH" "$FILE_PATH.bak.strip-config" || true
-
-  sed -i -E '/^\s*config PACKAGE_\$\(PKG_NAME\)_INCLUDE_(Haproxy|Hysteria|NaiveProxy|Shadowsocks_Libev_Client|Shadowsocks_Libev_Server|Shadowsocks_Rust_Client|Shadowsocks_Rust_Server|ShadowsocksR_Libev_Client|ShadowsocksR_Libev_Server|Simple_Obfs|SingBox|tuic_client|V2ray_Plugin)\b/ d' "$FILE_PATH"
-
-  echo "Stripped unwanted 'INCLUDE_' config lines. Remaining lines:"
-  grep -n -E '^config PACKAGE_\$\(PKG_NAME\)_INCLUDE_' "$FILE_PATH" || echo "None of the targeted config lines remain."
-else
-  echo "ERROR: Makefile not found to strip config lines: $FILE_PATH"
-fi
-# -------------------------------------------------------------------------------
-
-# after stripping config lines and modifying Makefile
-echo ">>> Further removal: remove package folders of unwanted modules..."
-
-# 列出你想彻底移除的模块对应包名与可能路径
-UNWANTED_PKGS=(
-  "haproxy"
-  "hysteria"
-  "naiveproxy"
-  "shadowsocks-libev"
-  "shadowsocks-rust"
-  "shadowsocksr-libev"
-  "simple-obfs"
-  "sing-box"
-  "tuic-client"
-  "v2ray-plugin"
-)
-
-for PKG in "${UNWANTED_PKGS[@]}"; do
-  echo "Removing package: $PKG"
-  find ./feeds -type d -iname "*$PKG*" -prune -exec rm -rf {} + 2>/dev/null || true
-  find ./package -type d -iname "*$PKG*" -prune -exec rm -rf {} + 2>/dev/null || true
-done
-
-echo "Removal of unwanted package folders done."
+# 在生成 .config 时由 Configure-Passwall2.py 选择仅 Xray。
+# 保留完整 Kconfig 定义和软件包源码，避免孤立属性和缺失依赖。
 
 #UPDATE_PACKAGE "luci-app-tailscale" "asvow/luci-app-tailscale" "main"
 #UPDATE_PACKAGE "athena-led" "unraveloop/JDC-AX6600-Athena-LED-Controller" "main"
