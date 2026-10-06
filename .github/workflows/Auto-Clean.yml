@@ -21,7 +21,8 @@ jobs:
         with:
           gh_token: ${{secrets.GITHUB_TOKEN}}
           delete_releases: true
-          releases_keep_latest: 6
+          #每轮编译发布 9 个固件（MTK 2 + OWRT 3 + QCA 2 + QCB 2），需全部保留
+          releases_keep_latest: 9
           delete_tags: true
           delete_workflows: true
           workflows_keep_day: 7
