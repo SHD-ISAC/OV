@@ -116,9 +116,9 @@ UPDATE_LOYALSOLDIER_GEODATA() {
 		-e "s|^GEOSITE_FILE:=.*|GEOSITE_FILE:=geosite.dat.\$(GEOSITE_VER)|" \
 		-e "s|^  URL:=https://github.com/v2fly/geoip/releases/download/.*|  URL:=https://github.com/Loyalsoldier/v2ray-rules-dat/releases/download/$RELEASE_TAG/|" \
 		-e "s|^  URL:=https://github.com/v2fly/domain-list-community/releases/download/.*|  URL:=https://github.com/Loyalsoldier/v2ray-rules-dat/releases/download/$RELEASE_TAG/|" \
-		-e '/define Download\/geosite/,/endef/ s|^  URL_FILE:=.*|  URL_FILE:=geosite.dat|' \
-		-e "/define Download\\/geoip/,/endef/ s|^  HASH:=.*|  HASH:=$GEOIP_HASH|" \
-		-e "/define Download\\/geosite/,/endef/ s|^  HASH:=.*|  HASH:=$GEOSITE_HASH|" \
+		-e '/^define Download\/geosite$/,/^endef/ s|^  URL_FILE:=.*|  URL_FILE:=geosite.dat|' \
+		-e "/^define Download\\/geoip\$/,/^endef/ s|^  HASH:=.*|  HASH:=$GEOIP_HASH|" \
+		-e "/^define Download\\/geosite\$/,/^endef/ s|^  HASH:=.*|  HASH:=$GEOSITE_HASH|" \
 		"$GEODATA_MK"
 
 	# 上游 Makefile 格式变动时必须报错，不能静默回退到其他数据源。
