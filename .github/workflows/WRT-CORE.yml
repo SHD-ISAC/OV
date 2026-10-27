@@ -203,6 +203,7 @@ jobs:
 
           $GITHUB_WORKSPACE/Scripts/Packages.sh
           $GITHUB_WORKSPACE/Scripts/Handles.sh
+          $GITHUB_WORKSPACE/.github/scripts/prepare-i2c-tools.sh
 
       - name: Verify Xray Source
         run: |
@@ -235,11 +236,19 @@ jobs:
           fi
 
           $GITHUB_WORKSPACE/Scripts/Settings.sh
+          $GITHUB_WORKSPACE/.github/scripts/prepare-build-host.sh
 
           python3 "$GITHUB_WORKSPACE/Scripts/Configure-Passwall2.py"
           make defconfig -j$(nproc)
           python3 "$GITHUB_WORKSPACE/Scripts/Configure-Passwall2.py" --verify
           make clean -j$(nproc)
+
+      - name: Prepare Rust Toolchain
+        if: ${{ !inputs.WRT_TEST }}
+        run: |
+          cd ./wrt/
+
+          $GITHUB_WORKSPACE/.github/scripts/prepare-rust.sh
 
       - name: Download Packages
         if: ${{ !inputs.WRT_TEST }}
@@ -253,7 +262,26 @@ jobs:
         run: |
           cd ./wrt/
 
-          make -j$(nproc) || make -j1 V=s
+          mkdir -p $GITHUB_WORKSPACE/build-reports
+          make -j$(nproc) BUILD_TIME_LOG="$GITHUB_WORKSPACE/build-reports/parallel.tsv" || \
+            make -j1 V=s BUILD_TIME_LOG="$GITHUB_WORKSPACE/build-reports/serial.tsv"
+
+      - name: Collect Build Reports
+        if: ${{ !inputs.WRT_TEST && always() }}
+        continue-on-error: true
+        run: |
+          cd ./wrt/
+
+          $GITHUB_WORKSPACE/.github/scripts/collect-build-reports.sh
+
+      - name: Upload Build Reports
+        if: ${{ !inputs.WRT_TEST && always() }}
+        continue-on-error: true
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: build-reports-${{env.WRT_CONFIG}}-${{env.WRT_INFO}}-${{github.run_attempt}}
+          path: ./build-reports/
+          retention-days: 7
 
       - name: Save Build Cache
         if: ${{ !inputs.WRT_TEST && success() && steps.cache-restore.outputs.cache-hit != 'true' }}
