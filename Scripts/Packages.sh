@@ -64,6 +64,7 @@ UPDATE_PACKAGE "aurora-config" "eamonxg/luci-app-aurora-config" "master"
 #UPDATE_PACKAGE "shadcn" "eamonxg/luci-theme-shadcn" "main"
 #UPDATE_PACKAGE "fluent" "LazuliKao/luci-theme-fluent" "main"
 #UPDATE_PACKAGE "footstrap" "VizzleTF/luci-theme-footstrap" "main"
+#UPDATE_PACKAGE "vantage" "anothaDev/luci-theme-vantage" "main"
 
 #UPDATE_PACKAGE "momo" "nikkinikki-org/OpenWrt-momo" "main"
 #UPDATE_PACKAGE "nikki" "nikkinikki-org/OpenWrt-nikki" "main"
