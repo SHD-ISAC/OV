@@ -79,17 +79,39 @@ UPDATE_PACKAGE "xray-core" "Openwrt-Passwall/openwrt-passwall-packages" "main" "
 UPDATE_LOYALSOLDIER_GEODATA() {
 	local GEODATA_MK="./feeds/packages/net/v2ray-geodata/Makefile"
 	local RELEASE_API="https://api.github.com/repos/Loyalsoldier/v2ray-rules-dat/releases/latest"
-	local RELEASE_TAG GEOIP_HASH GEOSITE_HASH
+	local RELEASE_BASE="https://github.com/Loyalsoldier/v2ray-rules-dat/releases"
+	local RELEASE_TAG="" RELEASE_URL RELEASE_DOWNLOAD GEOIP_HASH GEOSITE_HASH
+	local CURL_OPTS=(-fsS --retry 2 --connect-timeout 10 --max-time 30)
 
 	[ -f "$GEODATA_MK" ] || {
 		echo "ERROR: v2ray-geodata Makefile not found: $GEODATA_MK"
 		return 1
 	}
 
-	RELEASE_TAG="$(curl -fsSL --retry 3 "$RELEASE_API" | jq -er '.tag_name')" || {
-		echo "ERROR: failed to obtain the latest Loyalsoldier release tag"
+	# GitHub Actions 的令牌仅用于 API；403 或未设置令牌时读取公开发布页跳转。
+	if [ -n "${GITHUB_TOKEN:-}" ]; then
+		RELEASE_TAG="$(curl "${CURL_OPTS[@]}" \
+			-H "Authorization: Bearer $GITHUB_TOKEN" "$RELEASE_API" |
+			jq -er '.tag_name | strings | select(length > 0)')" || RELEASE_TAG=""
+	fi
+	if [ -z "$RELEASE_TAG" ]; then
+		echo "Resolving Loyalsoldier tag from the public release page"
+		RELEASE_URL="$(curl "${CURL_OPTS[@]}" -IL -o /dev/null \
+			-w '%{url_effective}' "$RELEASE_BASE/latest")" || {
+			echo "ERROR: failed to resolve the latest Loyalsoldier release"
+			return 1
+		}
+		[[ "$RELEASE_URL" == "$RELEASE_BASE/tag/"* ]] || {
+			echo "ERROR: unexpected Loyalsoldier release redirect"
+			return 1
+		}
+		RELEASE_TAG="${RELEASE_URL#"$RELEASE_BASE/tag/"}"
+	fi
+	[[ "$RELEASE_TAG" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || {
+		echo "ERROR: invalid Loyalsoldier release tag"
 		return 1
 	}
+	RELEASE_DOWNLOAD="$RELEASE_BASE/download/$RELEASE_TAG"
 
 	# OpenWrt 软件包版本不能包含任意 tag 字符，只保留数字作为数据版本。
 	local DATA_VERSION="${RELEASE_TAG//[^0-9]/}"
@@ -98,12 +120,10 @@ UPDATE_LOYALSOLDIER_GEODATA() {
 		return 1
 	}
 
-	GEOIP_HASH="$(curl -fsSL --retry 3 \
-		"https://github.com/Loyalsoldier/v2ray-rules-dat/releases/download/$RELEASE_TAG/geoip.dat.sha256sum" |
-		awk 'NR == 1 && $1 ~ /^[0-9a-fA-F]{64}$/ { print tolower($1) }')"
-	GEOSITE_HASH="$(curl -fsSL --retry 3 \
-		"https://github.com/Loyalsoldier/v2ray-rules-dat/releases/download/$RELEASE_TAG/geosite.dat.sha256sum" |
-		awk 'NR == 1 && $1 ~ /^[0-9a-fA-F]{64}$/ { print tolower($1) }')"
+	GEOIP_HASH="$(curl "${CURL_OPTS[@]}" -L "$RELEASE_DOWNLOAD/geoip.dat.sha256sum" |
+		awk 'NR == 1 && length($1) == 64 && $1 ~ /^[0-9a-fA-F]+$/ { print tolower($1) }')"
+	GEOSITE_HASH="$(curl "${CURL_OPTS[@]}" -L "$RELEASE_DOWNLOAD/geosite.dat.sha256sum" |
+		awk 'NR == 1 && length($1) == 64 && $1 ~ /^[0-9a-fA-F]+$/ { print tolower($1) }')"
 
 	[ "${#GEOIP_HASH}" -eq 64 ] && [ "${#GEOSITE_HASH}" -eq 64 ] || {
 		echo "ERROR: failed to obtain valid Loyalsoldier SHA-256 checksums"
@@ -115,15 +135,15 @@ UPDATE_LOYALSOLDIER_GEODATA() {
 		-e "s|^GEOSITE_VER:=.*|GEOSITE_VER:=$DATA_VERSION|" \
 		-e "s|^GEOIP_FILE:=.*|GEOIP_FILE:=geoip.dat.\$(GEOIP_VER)|" \
 		-e "s|^GEOSITE_FILE:=.*|GEOSITE_FILE:=geosite.dat.\$(GEOSITE_VER)|" \
-		-e "s|^  URL:=https://github.com/v2fly/geoip/releases/download/.*|  URL:=https://github.com/Loyalsoldier/v2ray-rules-dat/releases/download/$RELEASE_TAG/|" \
-		-e "s|^  URL:=https://github.com/v2fly/domain-list-community/releases/download/.*|  URL:=https://github.com/Loyalsoldier/v2ray-rules-dat/releases/download/$RELEASE_TAG/|" \
+		-e "s|^  URL:=https://github.com/v2fly/geoip/releases/download/.*|  URL:=$RELEASE_DOWNLOAD/|" \
+		-e "s|^  URL:=https://github.com/v2fly/domain-list-community/releases/download/.*|  URL:=$RELEASE_DOWNLOAD/|" \
 		-e '/^define Download\/geosite$/,/^endef/ s|^  URL_FILE:=.*|  URL_FILE:=geosite.dat|' \
 		-e "/^define Download\\/geoip\$/,/^endef/ s|^  HASH:=.*|  HASH:=$GEOIP_HASH|" \
 		-e "/^define Download\\/geosite\$/,/^endef/ s|^  HASH:=.*|  HASH:=$GEOSITE_HASH|" \
 		"$GEODATA_MK"
 
 	# 上游 Makefile 格式变动时必须报错，不能静默回退到其他数据源。
-	[ "$(grep -Fc "  URL:=https://github.com/Loyalsoldier/v2ray-rules-dat/releases/download/$RELEASE_TAG/" "$GEODATA_MK")" -eq 2 ]
+	[ "$(grep -Fc "  URL:=$RELEASE_DOWNLOAD/" "$GEODATA_MK")" -eq 2 ]
 	grep -Fqx "  HASH:=$GEOIP_HASH" "$GEODATA_MK"
 	grep -Fqx "  HASH:=$GEOSITE_HASH" "$GEODATA_MK"
 	grep -Fqx '  URL_FILE:=geosite.dat' "$GEODATA_MK"
@@ -157,7 +177,6 @@ UPDATE_LOYALSOLDIER_GEODATA
 #UPDATE_PACKAGE "quickfile" "sbwml/luci-app-quickfile" "main"
 #UPDATE_PACKAGE "timecontrol" "sirpdboy/luci-app-timecontrol" "main"
 #UPDATE_PACKAGE "viking" "VIKINGYFY/packages" "main" "" "luci-app-timewol luci-app-wolplus"
-#UPDATE_PACKAGE "vnt" "lmq8267/luci-app-vnt" "main"
 
 # 上游新增组件（本分支保持默认不启用）
 #UPDATE_PACKAGE "natmapt" "muink/openwrt-natmapt" "master"

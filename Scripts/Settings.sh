@@ -11,13 +11,18 @@ find ./feeds/luci/modules/luci-mod-system/ -type f -name "flash.js" -exec sed -i
 #添加编译日期标识
 find ./feeds/luci/modules/luci-mod-status/ -type f -name "10_system.js" -exec sed -i "s/(\(luciversion || ''\))/(\1) + (' \/ $WRT_MARK-$WRT_DATE')/g" {} +
 
+#修改默认WIFI账号密码
 WIFI_UC="./package/network/config/wifi-scripts/files/lib/wifi/mac80211.uc"
-if [ -f "$WIFI_UC" ]; then
-	#修改WIFI名称
-	sed -i "s/ssid='.*'/ssid='$WRT_SSID'/g" $WIFI_UC
-	#修改WIFI密码
-	sed -i "s/key='.*'/key='$WRT_WORD'/g" $WIFI_UC
-fi
+ROUTER_TOOL="./package/emortal/luci-app-router-tool/root/etc/config/router-tool"
+# 保留 mac80211 的赋值写法，同时支持新版 Router Tool 的 UCI 写法。
+WIFI_SSID_SED=$(printf '%s' "$WRT_SSID" | sed 's/[\\&|]/\\&/g')
+WIFI_WORD_SED=$(printf '%s' "$WRT_WORD" | sed 's/[\\&|]/\\&/g')
+for file in "$ROUTER_TOOL" "$WIFI_UC"; do
+	[ -f "$file" ] || continue
+	sed -i -E \
+		-e "s|(\bssid[=[:blank:]]+)'.*'|\1'$WIFI_SSID_SED'|" \
+		-e "s|(\bkey[=[:blank:]]+)'.*'|\1'$WIFI_WORD_SED'|" "$file"
+done
 
 CFG_FILE="./package/base-files/files/bin/config_generate"
 #修改默认IP地址
