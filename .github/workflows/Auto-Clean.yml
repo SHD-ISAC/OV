@@ -22,7 +22,7 @@ jobs:
           gh_token: ${{secrets.GITHUB_TOKEN}}
           delete_releases: true
           #保留全仓库最新发布；此数量不按平台或分支分别计数
-          releases_keep_latest: 9
+          releases_keep_latest: 25
           delete_tags: true
           delete_workflows: true
           workflows_keep_day: 7

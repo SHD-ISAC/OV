@@ -40,7 +40,12 @@ https://drive.wrt.moe/uboot/mediatek
 
 # 固件简要说明
 
-固件每天早上5点自动编译。
+每天北京时间 05:21 计划运行 `Auto-Clean`，随后触发 `QCA-ALL` 和 `QCA-OWRT`。实际开始时间取决于 GitHub 的队列。
+
+- `QCA-ALL` 继续编译源码 `main` 分支的 AP8220 标准版和 360 V6。
+- `QCA-OWRT` 编译源码 `owrt` 分支的 AP8220 标准版、360 V6 和 AP8220 1G NAND 版。
+
+在 Releases 中按标签区分源码分支和 NAND 规格：原装 AP8220 选 `standard`，使用对应 1G NAND 改装方案的 AP8220 选 `ap8220-1g-nand`。两种镜像不可混刷。
 
 固件信息里的时间为编译开始的时间，方便核对上游源码提交时间。
 

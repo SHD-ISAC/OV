@@ -37,6 +37,10 @@ on:
       WRT_SOURCE:
         required: true
         type: string
+      WRT_VARIANT:
+        required: false
+        default: standard
+        type: string
       WRT_PACKAGE:
         required: false
         type: string
@@ -61,6 +65,7 @@ env:
   WRT_REPO: ${{inputs.WRT_REPO}}
   WRT_BRANCH: ${{inputs.WRT_BRANCH}}
   WRT_SOURCE: ${{inputs.WRT_SOURCE}}
+  WRT_VARIANT: ${{inputs.WRT_VARIANT}}
   WRT_PACKAGE: ${{inputs.WRT_PACKAGE}}
   WRT_TEST: ${{inputs.WRT_TEST}}
 
@@ -110,16 +115,29 @@ jobs:
             *-WIFI-YES) WRT_WIFI=wifi-yes ;;
             *-WIFI-NO) WRT_WIFI=wifi-no ;;
           esac
-          WRT_VARIANT=standard
-          if [[ "$WRT_CONFIG" == IPQ807X* ]] && [ -f ./Patches/100-ap8220-1g-nand.patch ]; then
-            WRT_VARIANT=ap8220-1g-nand
-          fi
+          case "$WRT_VARIANT" in
+            standard) ;;
+            ap8220-1g-nand)
+              if [ "$WRT_CONFIG" != IPQ807X-WIFI-YES ] ||
+                 [ ! -f ./Patches/100-ap8220-1g-nand.patch ]; then
+                echo "ERROR: ap8220-1g-nand requires the AP8220 profile and NAND patch"
+                exit 1
+              fi
+              ;;
+            *)
+              echo "ERROR: unknown firmware variant: $WRT_VARIANT"
+              exit 1
+              ;;
+          esac
           WRT_TARGET=$(grep -m 1 -oP '^CONFIG_TARGET_\K[^=_]+(?=\=y)' "./Config/$WRT_CONFIG.txt")
           WRT_SUBTARGET=$(grep -m 1 -oP "^CONFIG_TARGET_${WRT_TARGET}_\K[^=_]+(?=\=y)" "./Config/$WRT_CONFIG.txt")
           WRT_CACHE_SOURCE=${WRT_SOURCE//\//-}
           WRT_CACHE_BRANCH=${WRT_BRANCH//\//-}
           WRT_CACHE_TARGET="$WRT_TARGET-$WRT_SUBTARGET"
           WRT_CACHE_PREFIX="wrt-$WRT_CACHE_SOURCE-$WRT_CACHE_BRANCH-$WRT_CACHE_TARGET"
+          if [ "$WRT_VARIANT" = ap8220-1g-nand ]; then
+            WRT_CACHE_PREFIX="wrt-$WRT_VARIANT-$WRT_CACHE_SOURCE-$WRT_CACHE_BRANCH-$WRT_CACHE_TARGET"
+          fi
 
           {
             echo "WRT_INFO=${WRT_SOURCE%%/*}"
@@ -130,7 +148,6 @@ jobs:
             echo "WRT_SUBTARGET=$WRT_SUBTARGET"
             echo "WRT_TARGET=$WRT_TARGET"
             echo "WRT_WIFI=$WRT_WIFI"
-            echo "WRT_VARIANT=$WRT_VARIANT"
             echo "WRT_KVER=none"
             echo "WRT_LIST=none"
           } >> "$GITHUB_ENV"
@@ -233,6 +250,10 @@ jobs:
           else
             cat $GITHUB_WORKSPACE/Config/$WRT_CONFIG.txt $GITHUB_WORKSPACE/Config/GENERAL.txt >> .config
           fi
+          if [ "$WRT_VARIANT" = ap8220-1g-nand ]; then
+            sed -i -e '/^CONFIG_PACKAGE_luci-app-wol=/d' -e '/^# CONFIG_PACKAGE_luci-app-wol is not set$/d' .config
+            printf '\n%s\n' 'CONFIG_PACKAGE_luci-app-wol=y' >> .config
+          fi
 
           $GITHUB_WORKSPACE/Scripts/Settings.sh
           $GITHUB_WORKSPACE/.github/scripts/prepare-build-host.sh
@@ -241,6 +262,20 @@ jobs:
           make defconfig -j$(nproc)
           python3 "$GITHUB_WORKSPACE/Scripts/Configure-Passwall2.py" --verify
           make clean -j$(nproc)
+
+      - name: Apply AP8220 1G NAND patch
+        if: ${{ inputs.WRT_VARIANT == 'ap8220-1g-nand' }}
+        working-directory: ./wrt/
+        run: |
+          AP8220_PROFILE=CONFIG_TARGET_DEVICE_qualcommax_ipq807x_DEVICE_aliyun_ap8220=y
+          SELECTED_PROFILES=$(grep -E '^CONFIG_TARGET_DEVICE_[^=]+_DEVICE_[^=]+=y$' .config || true)
+          if [ "$SELECTED_PROFILES" != "$AP8220_PROFILE" ] || grep -Fqx 'CONFIG_TARGET_ALL_PROFILES=y' .config; then
+            echo "ERROR: ap8220-1g-nand requires a resolved config that builds only the AP8220"
+            exit 1
+          fi
+          PATCH_FILE="$GITHUB_WORKSPACE/Patches/100-ap8220-1g-nand.patch"
+          git apply --check "$PATCH_FILE"
+          git apply "$PATCH_FILE"
 
       - name: Prepare Rust Toolchain
         if: ${{ !inputs.WRT_TEST }}
@@ -284,7 +319,7 @@ jobs:
         continue-on-error: true
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: build-reports-${{env.WRT_CONFIG}}-${{env.WRT_INFO}}-${{github.run_attempt}}
+          name: build-reports-${{env.WRT_CONFIG}}-${{env.WRT_INFO}}-${{env.WRT_VARIANT}}-${{github.run_attempt}}
           path: ./build-reports/
           retention-days: 7
 
@@ -319,6 +354,15 @@ jobs:
           cp package-sources.tsv "./upload/Sources-$BUILD_LABEL.txt"
 
           if [[ "$WRT_TEST" != 'true' ]]; then
+            if [ "$WRT_VARIANT" = ap8220-1g-nand ]; then
+              for IMAGE in squashfs-factory.ubi squashfs-sysupgrade.bin; do
+                if ! compgen -G "./bin/targets/$WRT_TARGET/$WRT_SUBTARGET/*-aliyun_ap8220-$IMAGE" > /dev/null; then
+                  echo "ERROR: missing AP8220 $IMAGE for the 1G NAND release"
+                  exit 1
+                fi
+              done
+            fi
+
             mapfile -d '' MANIFESTS < <(find ./bin/targets/ -type f -name '*.manifest' -print0)
             [ "${#MANIFESTS[@]}" -gt 0 ] || { echo "ERROR: no firmware manifest produced"; exit 1; }
             for MANIFEST in "${MANIFESTS[@]}"; do
